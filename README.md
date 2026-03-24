@@ -417,7 +417,11 @@ pnpm deploy
 
 ### Fork 用户部署须知
 
-> ⚠️ **重要**：Fork 本项目后，需要在 Cloudflare Dashboard 手动绑定资源，请勿直接修改 `wrangler.toml` 中的 ID，否则会导致与主分支同步冲突。
+> ⚠️ **重要**：本项目不包含 `wrangler.toml` 配置文件（已加入 `.gitignore`），Fork 用户需要自行创建配置文件或在 Cloudflare Dashboard 手动绑定资源。
+>
+> **推荐方式**：在 Cloudflare Dashboard 中绑定 KV、R2、AI 资源，无需创建 `wrangler.toml` 文件。
+>
+> **本地开发**：如需本地调试，请复制 `wrangler.example.toml` 为 `wrangler.toml` 并填入你的配置。
 
 详细部署步骤请参考 [部署文档](./docs/DEPLOYMENT.md)。
 
