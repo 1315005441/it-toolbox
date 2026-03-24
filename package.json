@@ -39,7 +39,7 @@
     "jsonpath-plus": "^10.4.0",
     "jsqr": "^1.4.0",
     "jszip": "^3.10.1",
-    "lucide-react": "^0.263.1",
+    "lucide-react": "^1.0.1",
     "marked": "^15.0.0",
     "marked-highlight": "^2.1.0",
     "mathjs": "^15.1.1",

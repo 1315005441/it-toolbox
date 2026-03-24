@@ -4,6 +4,7 @@ import { Star } from 'lucide-react'
 import type { ToolMeta } from '@toolbox/types/tool'
 import { useAppStore } from '@/store/app'
 import { getIconComponent } from '@/utils/icons'
+import { usePreloadTool } from '@/hooks/usePreloadTool'
 
 interface ToolCardProps {
   tool: ToolMeta
@@ -14,12 +15,15 @@ export function ToolCard({ tool }: ToolCardProps) {
   const { isFavorited, toggleFavorite } = useAppStore()
   const favorited = isFavorited(tool.id)
   const IconComp = getIconComponent(tool.icon)
+  const { preload } = usePreloadTool(tool.id)
 
   return (
     <Link
       to="/tool/$id"
       params={{ id: tool.id }}
       className="card p-4 group flex flex-col gap-3 cursor-pointer"
+      onMouseEnter={preload}
+      onTouchStart={preload}
     >
       <div className="flex items-start justify-between">
         <div className="w-9 h-9 rounded-lg bg-accent/8 border border-accent/15 flex items-center justify-center group-hover:bg-accent/15 transition-colors duration-150">
