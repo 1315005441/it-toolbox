@@ -305,7 +305,7 @@ export const searchIndex = new Fuse(toolRegistry, {
 
 ```bash
 # 前提:全局安装wrangler(一次性操作)
-npm install -g wrangler
+pnpm add -g wrangler
 wrangler login
 
 # 启动全栈本地开发

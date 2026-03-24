@@ -2,6 +2,7 @@
   "name": "it-toolbox",
   "version": "1.0.0",
   "private": true,
+  "packageManager": "pnpm@9.0.0",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
@@ -9,7 +10,7 @@
     "pages:dev": "wrangler pages dev dist --compatibility-date=2024-11-01 --port 8788",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src packages --ext .ts,.tsx",
-    "deploy": "npm run build && wrangler pages deploy dist --project-name=it-toolbox",
+    "deploy": "pnpm run build && wrangler pages deploy dist --project-name=it-toolbox",
     "lint:fix": "eslint src packages --ext .ts,.tsx --fix"
   },
   "dependencies": {
