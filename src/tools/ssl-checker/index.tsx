@@ -16,6 +16,7 @@ interface SslResult {
   signatureAlgorithm: string
   sans: string[]
   error?: string
+  source?: string
 }
 
 export default function SslChecker() {
@@ -167,6 +168,14 @@ export default function SslChecker() {
                   </span>
                 ))}
               </div>
+            </div>
+          )}
+
+          {result.source && (
+            <div className="p-3 rounded-xl bg-bg-surface border border-border-base">
+              <p className="text-xs text-text-muted">
+                数据来源: <span className="text-text-secondary">{result.source}</span>
+              </p>
             </div>
           )}
         </div>

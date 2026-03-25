@@ -9,6 +9,9 @@ interface HeaderCheck {
   value?: string
   recommendation: string
   severity: 'high' | 'medium' | 'low'
+  pass: boolean
+  scoreModifier: number
+  result: string
 }
 
 interface HeadersResult {
@@ -17,70 +20,78 @@ interface HeadersResult {
   score: number
   grade: string
   warnings: string[]
+  source: string
+  testsFailed: number
+  testsPassed: number
+  testsQuantity: number
 }
 
-const SECURITY_HEADERS_CONFIG = [
-  {
-    name: 'Strict-Transport-Security',
-    recommendation: '启用HSTS强制HTTPS连接，建议设置max-age至少31536000秒',
-    severity: 'high' as const,
-    weight: 20,
-  },
-  {
-    name: 'Content-Security-Policy',
-    recommendation: '设置CSP限制资源加载来源，防止XSS攻击',
-    severity: 'high' as const,
-    weight: 20,
-  },
-  {
-    name: 'X-Content-Type-Options',
-    recommendation: '设置为nosniff防止MIME类型嗅探',
-    severity: 'medium' as const,
-    weight: 10,
-  },
-  {
-    name: 'X-Frame-Options',
-    recommendation: '设置为DENY或SAMEORIGIN防止点击劫持',
-    severity: 'medium' as const,
-    weight: 10,
-  },
-  {
-    name: 'X-XSS-Protection',
-    recommendation: '设置为1; mode=block启用XSS过滤器（现代浏览器中CSP更有效，已逐渐被淘汰）',
-    severity: 'low' as const,
-    weight: 5,
-  },
-  {
-    name: 'Referrer-Policy',
-    recommendation: '设置为strict-origin-when-cross-origin控制Referrer信息',
-    severity: 'low' as const,
-    weight: 5,
-  },
-  {
-    name: 'Permissions-Policy',
-    recommendation: '限制浏览器功能访问（摄像头、麦克风、地理位置等）',
-    severity: 'medium' as const,
-    weight: 10,
-  },
-  {
-    name: 'Cross-Origin-Opener-Policy',
-    recommendation: '设置为same-origin防止跨源信息泄露',
-    severity: 'medium' as const,
-    weight: 10,
-  },
-  {
-    name: 'Cross-Origin-Resource-Policy',
-    recommendation: '设置为same-origin防止跨源资源加载',
-    severity: 'medium' as const,
-    weight: 10,
-  },
-  {
-    name: 'Cross-Origin-Embedder-Policy',
-    recommendation: '设置为require-corp增强跨源隔离',
-    severity: 'low' as const,
-    weight: 5,
-  },
-]
+interface MozillaScanResult {
+  end_time: string
+  grade: string
+  hidden: boolean
+  response_headers: Record<string, string>
+  scan_id: number
+  score: number
+  likelihood_indicator: string
+  start_time: string
+  state: string
+  tests_failed: number
+  tests_passed: number
+  tests_quantity: number
+}
+
+interface MozillaTestResult {
+  expectation: string
+  name: string
+  output: {
+    data?: unknown
+    [key: string]: unknown
+  }
+  pass: boolean
+  result: string
+  score_description: string
+  score_modifier: number
+}
+
+const HEADER_DISPLAY_NAMES: Record<string, string> = {
+  'content-security-policy': 'Content-Security-Policy',
+  'strict-transport-security': 'Strict-Transport-Security',
+  'x-content-type-options': 'X-Content-Type-Options',
+  'x-frame-options': 'X-Frame-Options',
+  'x-xss-protection': 'X-XSS-Protection',
+  'referrer-policy': 'Referrer-Policy',
+  'permissions-policy': 'Permissions-Policy',
+  'cross-origin-opener-policy': 'Cross-Origin-Opener-Policy',
+  'cross-origin-resource-policy': 'Cross-Origin-Resource-Policy',
+  'cross-origin-embedder-policy': 'Cross-Origin-Embedder-Policy',
+}
+
+const HEADER_RECOMMENDATIONS: Record<string, string> = {
+  'content-security-policy': '设置CSP限制资源加载来源，防止XSS攻击',
+  'strict-transport-security': '启用HSTS强制HTTPS连接，建议设置max-age至少31536000秒',
+  'x-content-type-options': '设置为nosniff防止MIME类型嗅探',
+  'x-frame-options': '设置为DENY或SAMEORIGIN防止点击劫持',
+  'x-xss-protection': '设置为1; mode=block启用XSS过滤器（现代浏览器中CSP更有效）',
+  'referrer-policy': '设置为strict-origin-when-cross-origin控制Referrer信息',
+  'permissions-policy': '限制浏览器功能访问（摄像头、麦克风、地理位置等）',
+  'cross-origin-opener-policy': '设置为same-origin防止跨源信息泄露',
+  'cross-origin-resource-policy': '设置为same-origin防止跨源资源加载',
+  'cross-origin-embedder-policy': '设置为require-corp增强跨源隔离',
+}
+
+const HEADER_SEVERITY: Record<string, 'high' | 'medium' | 'low'> = {
+  'content-security-policy': 'high',
+  'strict-transport-security': 'high',
+  'x-content-type-options': 'medium',
+  'x-frame-options': 'medium',
+  'x-xss-protection': 'low',
+  'referrer-policy': 'low',
+  'permissions-policy': 'medium',
+  'cross-origin-opener-policy': 'medium',
+  'cross-origin-resource-policy': 'medium',
+  'cross-origin-embedder-policy': 'low',
+}
 
 headersCheckRoute.get('/', async (c) => {
   const url = c.req.query('url')
@@ -100,6 +111,9 @@ headersCheckRoute.get('/', async (c) => {
     return c.json({ error: 'Invalid URL' }, 400)
   }
 
+  const urlObj = new URL(cleanUrl)
+  const hostname = urlObj.hostname
+
   const cacheKey = `cache:headers:${cleanUrl}`
   try {
     const cached = await c.env.CACHE.get(cacheKey)
@@ -109,98 +123,148 @@ headersCheckRoute.get('/', async (c) => {
   } catch {}
 
   try {
-    const res = await fetch(cleanUrl, {
-      method: 'GET',
-      redirect: 'follow',
-      headers: {
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      },
-    })
+    let scanResult: MozillaScanResult | null = null
+    let testResults: Record<string, MozillaTestResult> | null = null
+
+    try {
+      const analyzeRes = await fetch(
+        `https://http-observatory.security.mozilla.org/api/v1/analyze?host=${encodeURIComponent(hostname)}`,
+        {
+          method: 'POST',
+          headers: {
+            'Accept': 'application/json',
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
+          body: 'rescan=true',
+        }
+      )
+
+      if (analyzeRes.ok) {
+        scanResult = (await analyzeRes.json()) as MozillaScanResult
+
+        if (scanResult.state !== 'FINISHED') {
+          let attempts = 0
+          const maxAttempts = 10
+
+          while (scanResult.state !== 'FINISHED' && attempts < maxAttempts) {
+            await new Promise(resolve => setTimeout(resolve, 2000))
+            const statusRes = await fetch(
+              `https://http-observatory.security.mozilla.org/api/v1/analyze?host=${encodeURIComponent(hostname)}`
+            )
+            if (statusRes.ok) {
+              scanResult = (await statusRes.json()) as MozillaScanResult
+            }
+            attempts++
+          }
+        }
+
+        if (scanResult.state === 'FINISHED' && scanResult.scan_id) {
+          const testsRes = await fetch(
+            `https://http-observatory.security.mozilla.org/api/v1/getScanResults?scan=${scanResult.scan_id}`
+          )
+          if (testsRes.ok) {
+            testResults = (await testsRes.json()) as Record<string, MozillaTestResult>
+          }
+        }
+      }
+    } catch (mozillaError) {
+      console.log('Mozilla Observatory API failed:', mozillaError)
+    }
 
     const warnings: string[] = []
-    const allHeaders: Record<string, string> = {}
-    res.headers.forEach((value, key) => {
-      allHeaders[key.toLowerCase()] = value
-    })
+    const headers: HeaderCheck[] = []
 
-    const headers: HeaderCheck[] = SECURITY_HEADERS_CONFIG.map(config => {
-      const headerKey = config.name.toLowerCase()
-      const headerValue = allHeaders[headerKey] || null
-      
-      return {
-        name: config.name,
-        present: headerValue !== null,
-        value: headerValue || undefined,
-        recommendation: config.recommendation,
-        severity: config.severity,
-      }
-    })
+    if (testResults) {
+      const headerTests = [
+        'content-security-policy',
+        'strict-transport-security',
+        'x-content-type-options',
+        'x-frame-options',
+        'x-xss-protection',
+        'referrer-policy',
+        'permissions-policy',
+        'cross-origin-opener-policy',
+        'cross-origin-resource-policy',
+        'cross-origin-embedder-policy',
+      ]
 
-    let score = 0
-    let totalWeight = 0
-    
-    SECURITY_HEADERS_CONFIG.forEach((config, index) => {
-      totalWeight += config.weight
-      if (headers[index].present) {
-        score += config.weight
-      }
-    })
+      for (const testName of headerTests) {
+        const test = testResults[testName]
+        if (test) {
+          const headerValue = scanResult?.response_headers?.[testName] || 
+                             scanResult?.response_headers?.[HEADER_DISPLAY_NAMES[testName]]
 
-    const hstsHeader = headers.find(h => h.name === 'Strict-Transport-Security')
-    if (hstsHeader?.present && hstsHeader.value) {
-      const maxAgeMatch = hstsHeader.value.match(/max-age=(\d+)/i)
-      if (maxAgeMatch) {
-        const maxAge = parseInt(maxAgeMatch[1], 10)
-        if (maxAge < 31536000) {
-          warnings.push(`HSTS max-age值过小（${maxAge}秒），建议至少31536000秒（1年）`)
-        }
-        if (!hstsHeader.value.toLowerCase().includes('includesubdomains')) {
-          warnings.push('HSTS未包含includeSubDomains指令')
-        }
-        if (!hstsHeader.value.toLowerCase().includes('preload')) {
-          warnings.push('HSTS未包含preload指令，无法加入浏览器预加载列表')
+          headers.push({
+            name: HEADER_DISPLAY_NAMES[testName] || testName,
+            present: !!headerValue || test.result.includes('implemented'),
+            value: typeof test.output.data === 'string' ? test.output.data : headerValue || undefined,
+            recommendation: HEADER_RECOMMENDATIONS[testName] || test.score_description,
+            severity: HEADER_SEVERITY[testName] || 'medium',
+            pass: test.pass,
+            scoreModifier: test.score_modifier,
+            result: test.result,
+          })
+
+          if (!test.pass && test.score_modifier < 0) {
+            warnings.push(`${HEADER_DISPLAY_NAMES[testName]}: ${test.score_description}`)
+          }
         }
       }
+    } else {
+      const res = await fetch(cleanUrl, {
+        method: 'GET',
+        redirect: 'follow',
+        headers: {
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        },
+      })
+
+      const allHeaders: Record<string, string> = {}
+      res.headers.forEach((value, key) => {
+        allHeaders[key.toLowerCase()] = value
+      })
+
+      const headerNames = [
+        'strict-transport-security',
+        'content-security-policy',
+        'x-content-type-options',
+        'x-frame-options',
+        'x-xss-protection',
+        'referrer-policy',
+        'permissions-policy',
+        'cross-origin-opener-policy',
+        'cross-origin-resource-policy',
+        'cross-origin-embedder-policy',
+      ]
+
+      for (const headerName of headerNames) {
+        const headerValue = allHeaders[headerName]
+        headers.push({
+          name: HEADER_DISPLAY_NAMES[headerName] || headerName,
+          present: !!headerValue,
+          value: headerValue || undefined,
+          recommendation: HEADER_RECOMMENDATIONS[headerName] || '',
+          severity: HEADER_SEVERITY[headerName] || 'medium',
+          pass: !!headerValue,
+          scoreModifier: headerValue ? 0 : -10,
+          result: headerValue ? 'present' : 'missing',
+        })
+      }
+
+      warnings.push('Mozilla Observatory API不可用，使用简化检测模式')
     }
-
-    const cspHeader = headers.find(h => h.name === 'Content-Security-Policy')
-    if (cspHeader?.present && cspHeader.value) {
-      if (cspHeader.value.includes("'unsafe-inline'")) {
-        warnings.push("CSP包含'unsafe-inline'，降低了XSS防护能力")
-      }
-      if (cspHeader.value.includes("'unsafe-eval'")) {
-        warnings.push("CSP包含'unsafe-eval'，降低了XSS防护能力")
-      }
-      if (cspHeader.value.includes('*')) {
-        warnings.push('CSP使用通配符(*)，降低了安全性')
-      }
-    }
-
-    const xFrameHeader = headers.find(h => h.name === 'X-Frame-Options')
-    if (xFrameHeader?.present && xFrameHeader.value) {
-      const value = xFrameHeader.value.toUpperCase()
-      if (value !== 'DENY' && value !== 'SAMEORIGIN') {
-        warnings.push(`X-Frame-Options值应为DENY或SAMEORIGIN，当前为${xFrameHeader.value}`)
-      }
-    }
-
-    const percentageScore = Math.round((score / totalWeight) * 100)
-
-    let grade = 'F'
-    if (percentageScore >= 95) grade = 'A+'
-    else if (percentageScore >= 90) grade = 'A'
-    else if (percentageScore >= 80) grade = 'B'
-    else if (percentageScore >= 70) grade = 'C'
-    else if (percentageScore >= 60) grade = 'D'
-    else if (percentageScore >= 50) grade = 'E'
 
     const result: HeadersResult = {
       url: cleanUrl,
       headers,
-      score: percentageScore,
-      grade,
+      score: scanResult?.score ?? 0,
+      grade: scanResult?.grade ?? 'F',
       warnings,
+      source: scanResult ? 'Mozilla Observatory' : '本地检测',
+      testsFailed: scanResult?.tests_failed ?? 0,
+      testsPassed: scanResult?.tests_passed ?? 0,
+      testsQuantity: scanResult?.tests_quantity ?? 0,
     }
 
     try {

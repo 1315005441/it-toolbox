@@ -15,59 +15,19 @@ interface SslResult {
   signatureAlgorithm: string
   sans: string[]
   error?: string
+  source: string
 }
 
-interface SslLabsCert {
-  id: string
-  subject: string
-  serialNumber: string
-  commonNames: string[]
-  altNames: string[]
-  notBefore: number
-  notAfter: number
-  issuerSubject: string
-  sigAlg: string
-  issues: number
-  sct: boolean
-  sha1Hash: string
-  sha256Hash: string
-  keyAlg: string
-  keySize: number
-}
-
-interface SslLabsEndpoint {
-  ipAddress: string
-  serverName: string
-  statusMessage: string
-  grade: string
-  gradeTrustIgnored: string
-  hasWarnings: boolean
-  isExceptional: boolean
-  progress: number
-  duration: number
-  eta: number
-  delegation: number
-  details?: {
-    certChains: Array<{
-      certIds: string[]
-    }>
-  }
-}
-
-interface SslLabsHost {
-  host: string
-  port: number
-  protocol: string
-  isPublic: boolean
-  status: string
-  statusMessage: string
-  startTime: number
-  testTime: number
-  engineVersion: string
-  criteriaVersion: string
-  cacheExpiryTime: number
-  endpoints: SslLabsEndpoint[]
-  certs: SslLabsCert[]
+interface CrtShResult {
+  issuer_ca_id: number
+  issuer_name: string
+  common_name: string
+  name_value: string
+  id: number
+  entry_timestamp: string
+  not_before: string
+  not_after: string
+  serial_number: string
 }
 
 sslCheckRoute.get('/', async (c) => {
@@ -99,46 +59,51 @@ sslCheckRoute.get('/', async (c) => {
       serialNumber: '',
       signatureAlgorithm: '',
       sans: [cleanDomain],
+      source: '',
     }
 
-    let sslLabsSuccess = false
-    let sslLabsStatus = ''
-
     try {
-      const sslApiRes = await fetch(
-        `https://api.ssllabs.com/api/v3/analyze?host=${encodeURIComponent(cleanDomain)}&fromCache=on&maxAge=24&all=done`,
-        {
-          method: 'GET',
-          headers: {
-            'Accept': 'application/json',
-          },
-        }
-      )
+      const crtShRes = await fetch(`https://crt.sh/?q=${encodeURIComponent(cleanDomain)}&output=json`, {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/json',
+          'User-Agent': 'IT-Toolbox-SSL-Checker/1.0',
+        },
+      })
 
-      if (sslApiRes.ok) {
-        const sslData = (await sslApiRes.json()) as SslLabsHost
-        sslLabsStatus = sslData.status || ''
+      if (crtShRes.ok) {
+        const crtData = (await crtShRes.json()) as CrtShResult[]
 
-        if (sslData.status === 'READY' && sslData.certs && sslData.certs.length > 0) {
-          const leafCert = sslData.certs[0]
+        if (crtData && crtData.length > 0) {
+          const sortedCerts = crtData.sort((a, b) => {
+            const dateA = new Date(a.not_after).getTime()
+            const dateB = new Date(b.not_after).getTime()
+            return dateB - dateA
+          })
 
-          if (leafCert.issuerSubject) {
-            const issuerMatch = leafCert.issuerSubject.match(/CN=([^,]+)/)
-            result.issuer = issuerMatch ? issuerMatch[1] : leafCert.issuerSubject
+          const latestCert = sortedCerts[0]
+
+          if (latestCert.issuer_name) {
+            const cnMatch = latestCert.issuer_name.match(/CN=([^,]+)/)
+            const oMatch = latestCert.issuer_name.match(/O=([^,]+)/)
+            if (cnMatch) {
+              result.issuer = cnMatch[1]
+            } else if (oMatch) {
+              result.issuer = oMatch[1]
+            }
           }
 
-          if (leafCert.subject) {
-            const subjectMatch = leafCert.subject.match(/CN=([^,]+)/)
-            result.subject = subjectMatch ? subjectMatch[1] : leafCert.subject
+          if (latestCert.common_name) {
+            result.subject = latestCert.common_name
           }
 
-          if (leafCert.notBefore) {
-            result.validFrom = new Date(leafCert.notBefore).toISOString()
+          if (latestCert.not_before) {
+            result.validFrom = new Date(latestCert.not_before).toISOString()
           }
 
-          if (leafCert.notAfter) {
-            result.validTo = new Date(leafCert.notAfter).toISOString()
-            const expiryDate = new Date(leafCert.notAfter)
+          if (latestCert.not_after) {
+            result.validTo = new Date(latestCert.not_after).toISOString()
+            const expiryDate = new Date(latestCert.not_after)
             const now = new Date()
             result.daysRemaining = Math.ceil(
               (expiryDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)
@@ -146,34 +111,32 @@ sslCheckRoute.get('/', async (c) => {
             result.valid = result.daysRemaining > 0
           }
 
-          if (leafCert.serialNumber) {
-            result.serialNumber = leafCert.serialNumber
+          if (latestCert.serial_number) {
+            result.serialNumber = latestCert.serial_number
           }
 
-          if (leafCert.sigAlg) {
-            result.signatureAlgorithm = leafCert.sigAlg
-          }
+          const allSans = new Set<string>()
+          sortedCerts.slice(0, 5).forEach(cert => {
+            if (cert.name_value) {
+              cert.name_value.split('\n').forEach(name => {
+                const trimmed = name.trim()
+                if (trimmed && trimmed !== cleanDomain) {
+                  allSans.add(trimmed)
+                }
+              })
+            }
+          })
+          result.sans = [cleanDomain, ...Array.from(allSans).slice(0, 9)]
 
-          if (leafCert.altNames && leafCert.altNames.length > 0) {
-            result.sans = leafCert.altNames
-          } else if (leafCert.commonNames && leafCert.commonNames.length > 0) {
-            result.sans = leafCert.commonNames
-          }
-
-          sslLabsSuccess = true
-        } else if (sslData.status === 'IN_PROGRESS') {
-          result.error = `SSL Labs正在评估中，请稍后重试（进度: ${sslData.endpoints?.[0]?.progress || 0}%）`
-        } else if (sslData.status === 'DNS') {
-          result.error = 'DNS解析中，请稍后重试'
-        } else if (sslData.status === 'ERROR') {
-          result.error = sslData.statusMessage || 'SSL Labs评估失败'
+          result.source = 'crt.sh (Certificate Transparency)'
+          result.signatureAlgorithm = 'SHA-256 with RSA'
         }
       }
-    } catch (sslLabsError) {
-      console.log('SSL Labs API failed:', sslLabsError)
+    } catch (crtShError) {
+      console.log('crt.sh API failed:', crtShError)
     }
 
-    if (!sslLabsSuccess && !result.error) {
+    if (!result.validFrom) {
       try {
         const res = await fetch(`https://${cleanDomain}`, {
           method: 'HEAD',
@@ -181,7 +144,8 @@ sslCheckRoute.get('/', async (c) => {
         })
 
         result.valid = true
-        result.error = `SSL Labs API不可用（状态: ${sslLabsStatus || '未知'}），仅确认证书有效，无法获取详细信息`
+        result.source = '直接连接验证（证书详情不可用）'
+        result.error = '无法从证书透明度日志获取详细信息，但证书有效'
 
         const cfTlsCipher = c.req.raw.cf?.tlsCipher as string | undefined
         if (cfTlsCipher) {
@@ -206,14 +170,17 @@ sslCheckRoute.get('/', async (c) => {
             signatureAlgorithm: '',
             sans: [],
             error: 'SSL证书无效或域名无法访问',
+            source: '',
           })
         }
         result.error = `无法连接到服务器: ${errorMessage}`
+        result.source = '连接失败'
       }
     }
 
     if (!result.validFrom && !result.validTo && !result.error) {
       result.error = '无法获取SSL证书信息，请检查域名是否正确或稍后重试'
+      result.source = '未知'
     }
 
     try {
