@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react'
-import { ShieldCheck, Search, AlertCircle, CheckCircle, XCircle, AlertTriangle, Loader2 } from 'lucide-react'
+import { ShieldCheck, Search, AlertCircle, CheckCircle, XCircle, AlertTriangle, Loader2, Info } from 'lucide-react'
 import { ToolLayout } from '@/components/tool/ToolLayout'
 import { useAppStore } from '@/store/app'
 import { meta } from './meta'
@@ -17,6 +17,7 @@ interface HeadersResult {
   headers: HeaderCheck[]
   score: number
   grade: string
+  warnings?: string[]
 }
 
 export default function HeadersCheck() {
@@ -48,7 +49,7 @@ export default function HeadersCheck() {
       } else {
         setResult(data)
       }
-    } catch (e) {
+    } catch {
       setError('检测失败，请检查网络连接或稍后重试')
     }
 
@@ -66,6 +67,7 @@ export default function HeadersCheck() {
     if (grade === 'B') return 'text-blue-500 bg-blue-500/10'
     if (grade === 'C') return 'text-yellow-500 bg-yellow-500/10'
     if (grade === 'D') return 'text-orange-500 bg-orange-500/10'
+    if (grade === 'E') return 'text-orange-500 bg-orange-500/10'
     return 'text-rose-500 bg-rose-500/10'
   }
 
@@ -125,6 +127,23 @@ export default function HeadersCheck() {
               <div className="text-xs">{result.score}/100</div>
             </div>
           </div>
+
+          {result.warnings && result.warnings.length > 0 && (
+            <div className="p-4 rounded-xl bg-yellow-500/10 border border-yellow-500/20">
+              <div className="flex items-center gap-2 mb-2">
+                <Info className="w-4 h-4 text-yellow-500" />
+                <span className="text-sm font-medium text-yellow-400">安全建议</span>
+              </div>
+              <ul className="space-y-1">
+                {result.warnings.map((warning, i) => (
+                  <li key={i} className="text-xs text-yellow-300/80 flex items-start gap-2">
+                    <span className="text-yellow-500 mt-0.5">•</span>
+                    <span>{warning}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
 
           <div className="space-y-2">
             {result.headers.map((header, i) => (

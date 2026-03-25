@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
-import { Search, Command, Menu, ExternalLink } from 'lucide-react'
+import { Search, Command, Menu } from 'lucide-react'
 import { Command as Cmd, CommandInput, CommandList, CommandItem, CommandEmpty, CommandGroup } from 'cmdk'
 import { searchTools } from '@/registry'
 import type { ToolMeta } from '@toolbox/types/tool'

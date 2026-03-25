@@ -44,7 +44,7 @@ export default function SslChecker() {
       } else {
         setResult(data)
       }
-    } catch (e) {
+    } catch {
       setError('检测失败，请检查网络连接或稍后重试')
     }
 
